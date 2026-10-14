@@ -1,3 +1,5 @@
 chromadb
 anthropic
 python-dotenv
+fastapi
+uvicorn

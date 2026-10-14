@@ -9,7 +9,8 @@ load_dotenv()
 
 MODEL = "claude-sonnet-4-6"
 THRESHOLD = 1.4  # max distance to treat a chunk as relevant (tune it)
-DOCS_DIR = Path("rag-assistant/docs")
+DOCS_DIR = Path("docs")
+NOT_FOUND = "I could not find this in the documents."
 
 llm = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
@@ -60,17 +61,16 @@ def retrieve(question: str, n_results: int = 3) -> list[dict]:
 SYSTEM_PROMPT = (
     "You are a company assistant. Answer the question using ONLY the provided "
     "context. Mention the source file name in brackets, e.g. [handbook.txt]. "
-    "If the context does not contain the answer, reply exactly: "
-    "'I could not find this in the documents.' Do not use outside knowledge."
+    f"If the context does not contain the answer, reply exactly: '{NOT_FOUND}' "
+    "Do not use outside knowledge."
 )
 
 
-def answer(question: str) -> None:
+def ask(question: str) -> dict:
+    """Return the answer and the chunks used. Reused by the CLI and the API."""
     chunks = [c for c in retrieve(question) if c["distance"] <= THRESHOLD]
     if not chunks:
-        print("\nAnswer: I could not find this in the documents.")
-        print(f"(no chunk within threshold {THRESHOLD}, LLM was not called)")
-        return
+        return {"answer": NOT_FOUND, "sources": [], "llm_called": False}
 
     context = "\n\n".join(f"[{c['source']}]\n{c['text']}" for c in chunks)
 
@@ -86,10 +86,30 @@ def answer(question: str) -> None:
         ],
     )
 
-    print("\nAnswer:", response.content[0].text)
+    return {
+        "answer": response.content[0].text,
+        "sources": [
+            {
+                "source": c["source"],
+                "distance": round(c["distance"], 3),
+                "text": c["text"],
+            }
+            for c in chunks
+        ],
+        "llm_called": True,
+    }
+
+
+def answer(question: str) -> None:
+    """CLI helper: call ask() and print the result."""
+    result = ask(question)
+    print("\nAnswer:", result["answer"])
+    if not result["llm_called"]:
+        print(f"(no chunk within threshold {THRESHOLD}, LLM was not called)")
+        return
     print("\nRetrieved chunks:")
-    for c in chunks:
-        print(f"  distance={c['distance']:.3f} | {c['source']} | {c['text'][:60]!r}...")
+    for s in result["sources"]:
+        print(f"  distance={s['distance']:.3f} | {s['source']} | {s['text'][:60]!r}...")
 
 
 if __name__ == "__main__":
