@@ -102,6 +102,15 @@ Each test case says whether the answer should be found in the documents.
 - A single distance threshold cannot separate every case: "parental leave" is semantically close to "vacation" and scores better than the valid "keyboard" question.
   The threshold (1.4) therefore only filters clearly unrelated questions; the system prompt handles the borderline ones.
 
+## Tests
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest -v
+```
+
+The suite covers health check, request validation (422), the no-LLM path for out-of-scope questions, and the happy path with a mocked Claude client, so tests run offline and cost nothing.
+
 ## Limitations and next steps
 
 - Only `.txt` files; PDF/DOCX ingestion is not implemented
