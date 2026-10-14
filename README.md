@@ -43,21 +43,58 @@ Question: How many vacation days do I get?
 Answer: Full-time employees receive 20 paid vacation days per year. [handbook.txt]
 ```
 
+## REST API
+
+```bash
+python -m uvicorn api:app --reload
+```
+
+Open http://127.0.0.1:8000/docs for the interactive Swagger UI.
+
+![Swagger UI](assets/swagger.png)
+
+| Method | Path      | Description                                |
+| ------ | --------- | ------------------------------------------ |
+| GET    | `/health` | Liveness check                             |
+| POST   | `/ask`    | Ask a question about the indexed documents |
+
+Request:
+
+```json
+{ "question": "How many vacation days do I get?" }
+```
+
+Response:
+
+```json
+{
+  "answer": "Full-time employees receive 20 paid vacation days per year. [handbook.txt]",
+  "sources": [{ "source": "handbook.txt", "distance": 0.572, "text": "..." }],
+  "llm_called": true
+}
+```
+
+Behavior:
+
+- Input is validated (3-500 characters); invalid requests return `422`
+- If no chunk is close enough, `llm_called` is `false` and the LLM is never called
+- If the LLM provider fails, the API returns `502` instead of an unhandled `500`
+
 ## Evaluation
 
 `eval_retrieval.py` checks retrieval quality without calling the LLM (free and deterministic).
 Each test case says whether the answer should be found in the documents.
 
-| Question | Best distance | Answer in docs? | Result |
-|---|---|---|---|
-| How many vacation days do I get? | 0.572 | yes | OK |
-| Can I carry over unused vacation days? | 0.651 | yes | OK |
-| Can I work from home on Fridays? | 0.985 | yes | OK |
-| Do I need approval to buy a $150 keyboard? | 1.383 | yes | OK |
-| What should I do if I lose my laptop? | 1.196 | yes | OK |
-| What is the CEO's salary? | 1.757 | no | OK |
-| What is the company's parental leave policy? | 1.253 | no | FAIL (see below) |
-| Who won the football game yesterday? | 1.835 | no | OK |
+| Question                                     | Best distance | Answer in docs? | Result           |
+| -------------------------------------------- | ------------- | --------------- | ---------------- |
+| How many vacation days do I get?             | 0.572         | yes             | OK               |
+| Can I carry over unused vacation days?       | 0.651         | yes             | OK               |
+| Can I work from home on Fridays?             | 0.985         | yes             | OK               |
+| Do I need approval to buy a $150 keyboard?   | 1.383         | yes             | OK               |
+| What should I do if I lose my laptop?        | 1.196         | yes             | OK               |
+| What is the CEO's salary?                    | 1.757         | no              | OK               |
+| What is the company's parental leave policy? | 1.253         | no              | FAIL (see below) |
+| Who won the football game yesterday?         | 1.835         | no              | OK               |
 
 **Findings**
 
@@ -69,4 +106,4 @@ Each test case says whether the answer should be found in the documents.
 
 - Only `.txt` files; PDF/DOCX ingestion is not implemented
 - Tiny sample corpus, so distance values are noisy
-- Planned: reranking, answer-level evaluation (Ragas), FastAPI service, pgvector backend
+- Planned: Docker Compose setup, PDF ingestion, reranking, answer-level evaluation (Ragas), pgvector backend
