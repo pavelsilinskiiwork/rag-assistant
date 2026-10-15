@@ -111,8 +111,17 @@ python -m pytest -v
 
 The suite covers health check, request validation (422), the no-LLM path for out-of-scope questions, and the happy path with a mocked Claude client, so tests run offline and cost nothing.
 
+## Run with Docker
+
+```bash
+cp .env.example .env   # add your ANTHROPIC_API_KEY
+docker compose up --build
+```
+
+The API is available at http://localhost:8000/docs. The vector store and the embedding model cache are kept in named volumes, documents in `docs/` are mounted read-only, and the API key is passed at runtime and never baked into the image.
+
 ## Limitations and next steps
 
 - Only `.txt` files; PDF/DOCX ingestion is not implemented
 - Tiny sample corpus, so distance values are noisy
-- Planned: Docker Compose setup, PDF ingestion, reranking, answer-level evaluation (Ragas), pgvector backend
+- Planned: PDF ingestion, reranking, answer-level evaluation (Ragas), pgvector backend
