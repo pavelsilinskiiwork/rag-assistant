@@ -1,6 +1,6 @@
 # RAG Assistant
 
-A command-line question-answering assistant over your own text documents.
+A question-answering assistant over your own text documents, available as a command-line tool and as a REST API (FastAPI, Docker).
 It retrieves the most relevant passages with semantic search and asks Claude
 to answer **only** from them, citing the source file. If the documents do not
 contain the answer, it says so instead of making something up.
@@ -28,6 +28,7 @@ question -> embedding -> top-3 nearest chunks -> distance threshold
 ```bash
 pip install -r requirements.txt
 cp .env.example .env        # then put your Anthropic API key into .env
+                            # Windows (cmd): copy .env.example .env
 ```
 
 Put your `.txt` documents into the `docs/` folder (a sample `handbook.txt` is included).
@@ -124,4 +125,6 @@ The API is available at http://localhost:8000/docs. The vector store and the emb
 
 - Only `.txt` files; PDF/DOCX ingestion is not implemented
 - Tiny sample corpus, so distance values are noisy
+- No authentication or rate limiting on the API (intended as a local/demo service)
+- Documents are re-indexed on every startup; there is no incremental update or deletion
 - Planned: PDF ingestion, reranking, answer-level evaluation (Ragas), pgvector backend
