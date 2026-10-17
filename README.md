@@ -56,10 +56,11 @@ Open http://127.0.0.1:8000/docs for the interactive Swagger UI.
 
 ![Swagger UI](assets/swagger.png)
 
-| Method | Path      | Description                                |
-| ------ | --------- | ------------------------------------------ |
-| GET    | `/health` | Liveness check                             |
-| POST   | `/ask`    | Ask a question about the indexed documents |
+| Method | Path      | Description                                             |
+| ------ | --------- | ------------------------------------------------------- |
+| GET    | `/health` | Liveness check                                          |
+| POST   | `/ask`    | Ask a question about the indexed documents              |
+| POST   | /upload   | Index a PDF (max 5 MB); answers then cite file and page |
 
 Request:
 
