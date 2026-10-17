@@ -5,7 +5,7 @@ It retrieves the most relevant passages with semantic search and asks Claude
 to answer **only** from them, citing the source file. If the documents do not
 contain the answer, it says so instead of making something up.
 
-![tests](https://github.com/pavelsilinskiiwork/rag-assistant/actions/workflows/tests.yml/badge.svg)
+[![tests](https://github.com/pavelsilinskiiwork/rag-assistant/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/pavelsilinskiiwork/rag-assistant/actions/workflows/tests.yml)
 
 ## How it works
 
