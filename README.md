@@ -56,11 +56,12 @@ Open http://127.0.0.1:8000/docs for the interactive Swagger UI.
 
 ![Swagger UI](assets/swagger.png)
 
-| Method | Path      | Description                                             |
-| ------ | --------- | ------------------------------------------------------- |
-| GET    | `/health` | Liveness check                                          |
-| POST   | `/ask`    | Ask a question about the indexed documents              |
-| POST   | /upload   | Index a PDF (max 5 MB); answers then cite file and page |
+| Method | Path      | Description                                                                |
+| ------ | --------- | -------------------------------------------------------------------------- |
+| GET    | `/health` | Liveness check                                                             |
+| POST   | `/ask`    | Ask a question about the indexed documents                                 |
+| POST   | /upload   | Index a PDF (max 5 MB); answers then cite file and page                    |
+| POST   | /agent    | Tool-calling agent (document search, calculator) with a visible step trace |
 
 Request:
 
@@ -123,6 +124,32 @@ docker compose up --build
 ```
 
 The API is available at http://localhost:8000/docs. The vector store and the embedding model cache are kept in named volumes, documents in `docs/` are mounted read-only, and the API key is passed at runtime and never baked into the image.
+
+## Agent and prompt-injection defenses
+
+`POST /agent` runs a tool-calling agent (Anthropic native tool use) with two
+read-only tools: `search_documents` and `calculate`. Every step is returned in
+the response, so you can see which tool was called with which arguments.
+
+Retrieved documents are untrusted input and can carry hidden instructions.
+Defenses, in layers:
+
+1. **Least privilege:** only two read-only tools; no files, network or shell.
+2. **Tool allowlist:** a tool name the model invents is refused, never run.
+3. **Untrusted data:** passages are wrapped in `<document>` tags, tag breakout is
+   neutralised, and suspicious phrases are flagged and logged.
+4. **System prompt:** documents are data; instructions inside them are ignored.
+5. **Hard limits:** max 5 steps, capped tool output, safe AST calculator (no `eval`).
+
+Verification: 14 unit tests (mocked LLM) plus `eval_injection.py`, a live check
+against the real model with 5 attack styles (direct override, fake system notice,
+tag breakout, exfiltration, polite injection). Result: **5/5 resisted**, the agent
+still answered the original question and warned about the document.
+The first run exposed a gap in the phrase filter (two attacks were not flagged);
+it was fixed and covered by a test.
+
+This is a small sample on one model, not a guarantee. Phrase filtering is only a
+detection signal, and the real protection is least privilege.
 
 ## Limitations and next steps
 

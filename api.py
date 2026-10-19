@@ -5,6 +5,7 @@ from anthropic import APIError
 from fastapi import FastAPI, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
+from agent import run_agent
 from rag_assistant import ask, index_documents, index_pdf
 
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
@@ -19,7 +20,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="RAG Assistant API",
     description="Ask questions about local documents. Answers are grounded in retrieved passages.",
-    version="0.2.0",
+    version="0.3.0",
     lifespan=lifespan,
 )
 
@@ -43,6 +44,18 @@ class AskResponse(BaseModel):
     llm_called: bool
 
 
+class AgentStep(BaseModel):
+    tool: str
+    input: dict
+    output: str
+
+
+class AgentResponse(BaseModel):
+    answer: str
+    steps: list[AgentStep]
+    stopped: str  # "final_answer" or "max_steps"
+
+
 class UploadResponse(BaseModel):
     filename: str
     pages_indexed: int
@@ -60,6 +73,17 @@ def ask_endpoint(request: AskRequest):
         return ask(request.question)
     except APIError as e:
         # The LLM provider failed: report a gateway error instead of a 500 crash
+        raise HTTPException(
+            status_code=502, detail=f"LLM provider error: {e.__class__.__name__}"
+        )
+
+
+@app.post("/agent", response_model=AgentResponse)
+def agent_endpoint(request: AskRequest):
+    """Tool-calling agent: searches documents and calculates, with a visible trace of steps."""
+    try:
+        return run_agent(request.question)
+    except APIError as e:
         raise HTTPException(
             status_code=502, detail=f"LLM provider error: {e.__class__.__name__}"
         )
