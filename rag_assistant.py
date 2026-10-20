@@ -1,6 +1,7 @@
 import io
 import os
 import re
+import time
 from pathlib import Path
 
 import chromadb
@@ -8,9 +9,11 @@ from anthropic import Anthropic
 from dotenv import load_dotenv
 from pypdf import PdfReader
 
+from observability import record_llm_call
+
 load_dotenv()
 
-MODEL = "claude-sonnet-4-6"
+MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5-5")  # e.g. claude-haiku-5-5 for a cheap public demo
 THRESHOLD = 1.4  # max distance to treat a chunk as relevant (tune it)
 DOCS_DIR = Path("docs")
 NOT_FOUND = "I could not find this in the documents."
@@ -171,6 +174,7 @@ def ask(question: str) -> dict:
 
     context = "\n\n".join(f"[{citation(c)}]\n{c['text']}" for c in chunks)
 
+    started = time.perf_counter()
     response = llm.messages.create(
         model=MODEL,
         max_tokens=500,
@@ -182,6 +186,7 @@ def ask(question: str) -> dict:
             }
         ],
     )
+    record_llm_call(response, MODEL, started)
 
     return {
         "answer": response.content[0].text,

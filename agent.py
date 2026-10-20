@@ -14,7 +14,9 @@ import json
 import logging
 import operator
 import re
+import time
 
+from observability import record_llm_call
 from rag_assistant import MODEL, THRESHOLD, citation, llm, retrieve
 
 log = logging.getLogger("agent")
@@ -152,9 +154,11 @@ def run_agent(question: str, max_steps: int = MAX_STEPS) -> dict:
     messages = [{"role": "user", "content": question}]
     steps = []
     for _ in range(max_steps):
+        started = time.perf_counter()
         response = llm.messages.create(
             model=MODEL, max_tokens=800, system=AGENT_SYSTEM, tools=TOOLS, messages=messages
         )
+        record_llm_call(response, MODEL, started)
         if response.stop_reason != "tool_use":
             text = "".join(b.text for b in response.content if b.type == "text")
             return {"answer": text, "steps": steps, "stopped": "final_answer"}

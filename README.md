@@ -151,6 +151,16 @@ it was fixed and covered by a test.
 This is a small sample on one model, not a guarantee. Phrase filtering is only a
 detection signal, and the real protection is least privilege.
 
+## Observability
+
+Every LLM call and every HTTP request writes one structured JSON log line with
+latency, input/output tokens and an estimated cost in USD. The same numbers are
+returned to the client in the `usage` field of `/ask` and `/agent`, and each
+response carries `X-Request-Id` and `X-Latency-Ms` headers.
+
+Questions outside the documents are stopped by the distance threshold before
+any LLM call, so they cost nothing (`llm_calls: 0`).
+
 ## Limitations and next steps
 
 - Only `.txt` files; PDF/DOCX ingestion is not implemented

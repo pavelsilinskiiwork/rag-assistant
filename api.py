@@ -2,10 +2,11 @@ import os
 from contextlib import asynccontextmanager
 
 from anthropic import APIError
-from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi import FastAPI, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 
 from agent import run_agent
+from observability import current_usage, log_request, request_stats
 from rag_assistant import ask, index_documents, index_pdf
 
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
@@ -20,9 +21,29 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="RAG Assistant API",
     description="Ask questions about local documents. Answers are grounded in retrieved passages.",
-    version="0.3.0",
+    version="0.4.0",
     lifespan=lifespan,
 )
+
+
+@app.middleware("http")
+async def metrics_middleware(request: Request, call_next):
+    """One structured log line per request, plus X-Request-Id and X-Latency-Ms headers."""
+    with request_stats() as stats:
+        response = await call_next(request)
+        response.headers["X-Request-Id"] = stats.request_id
+        response.headers["X-Latency-Ms"] = str(round(stats.elapsed_ms()))
+        if request.url.path != "/health":
+            log_request(stats, request.method, request.url.path, response.status_code)
+    return response
+
+
+class Usage(BaseModel):
+    llm_calls: int
+    input_tokens: int
+    output_tokens: int
+    cost_usd: float  # estimate
+    llm_latency_ms: int
 
 
 class AskRequest(BaseModel):
@@ -42,6 +63,7 @@ class AskResponse(BaseModel):
     answer: str
     sources: list[Source]
     llm_called: bool
+    usage: Usage | None = None
 
 
 class AgentStep(BaseModel):
@@ -54,6 +76,7 @@ class AgentResponse(BaseModel):
     answer: str
     steps: list[AgentStep]
     stopped: str  # "final_answer" or "max_steps"
+    usage: Usage | None = None
 
 
 class UploadResponse(BaseModel):
@@ -70,7 +93,9 @@ def health():
 @app.post("/ask", response_model=AskResponse)
 def ask_endpoint(request: AskRequest):
     try:
-        return ask(request.question)
+        result = ask(request.question)
+        result["usage"] = current_usage()
+        return result
     except APIError as e:
         # The LLM provider failed: report a gateway error instead of a 500 crash
         raise HTTPException(
@@ -82,7 +107,9 @@ def ask_endpoint(request: AskRequest):
 def agent_endpoint(request: AskRequest):
     """Tool-calling agent: searches documents and calculates, with a visible trace of steps."""
     try:
-        return run_agent(request.question)
+        result = run_agent(request.question)
+        result["usage"] = current_usage()
+        return result
     except APIError as e:
         raise HTTPException(
             status_code=502, detail=f"LLM provider error: {e.__class__.__name__}"
