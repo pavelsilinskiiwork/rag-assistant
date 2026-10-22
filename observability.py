@@ -28,6 +28,10 @@ PRICES = {
     "claude-sonnet-5-5": {"short": (2.00, 10.00)},
     "claude-haiku-5-5": {"short": (0.10, 0.50), "long": (0.50, 2.50)},
     "claude-sonnet-4-6": {"short": (3.00, 15.00)},  # older model, not in the current list
+    # Groq free plan: no charge (rate limits apply instead). Update if you move to a paid plan.
+    "openai/gpt-oss-120b": {"short": (0.0, 0.0)},
+    "openai/gpt-oss-20b": {"short": (0.0, 0.0)},
+    "qwen/qwen3.8-27b": {"short": (0.0, 0.0)},
 }
 DEFAULT_PRICE = (2.00, 10.00)  # unknown model: assume Sonnet 5.5 pricing
 
@@ -52,6 +56,8 @@ class RequestStats:
     output_tokens: int = 0
     cost_usd: float = 0.0
     llm_latency_ms: float = 0.0
+    provider: str | None = None
+    model: str | None = None
 
     def usage(self) -> dict:
         return {
@@ -60,6 +66,8 @@ class RequestStats:
             "output_tokens": self.output_tokens,
             "cost_usd": round(self.cost_usd, 6),
             "llm_latency_ms": round(self.llm_latency_ms),
+            "provider": self.provider,
+            "model": self.model,
         }
 
     def elapsed_ms(self) -> float:
@@ -85,12 +93,12 @@ def current_usage() -> dict | None:
     return stats.usage() if stats else None
 
 
-def record_llm_call(response, model: str, started: float) -> None:
-    """Log one LLM call and add it to the current request. Never raises."""
+def record_llm_call(result, started: float) -> None:
+    """Log one LLM call (an LLMResult) and add it to the current request. Never raises."""
     latency_ms = (time.perf_counter() - started) * 1000
-    usage = getattr(response, "usage", None)
-    input_tokens = int(getattr(usage, "input_tokens", 0) or 0)
-    output_tokens = int(getattr(usage, "output_tokens", 0) or 0)
+    model = getattr(result, "model", "") or ""
+    input_tokens = int(getattr(result, "input_tokens", 0) or 0)
+    output_tokens = int(getattr(result, "output_tokens", 0) or 0)
     cost = estimate_cost(model, input_tokens, output_tokens)
 
     stats = _current.get()
@@ -100,12 +108,15 @@ def record_llm_call(response, model: str, started: float) -> None:
         stats.output_tokens += output_tokens
         stats.cost_usd += cost
         stats.llm_latency_ms += latency_ms
+        stats.provider = getattr(result, "provider", None)
+        stats.model = model
 
     log.info(
         json.dumps(
             {
                 "event": "llm_call",
                 "request_id": stats.request_id if stats else None,
+                "provider": getattr(result, "provider", None),
                 "model": model,
                 "latency_ms": round(latency_ms),
                 "input_tokens": input_tokens,

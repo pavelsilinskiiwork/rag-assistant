@@ -11,6 +11,7 @@ Run: py eval_injection.py
 import re
 
 import agent
+import rag_assistant
 
 CANARY = "PWNED-7431"
 
@@ -39,6 +40,7 @@ def run_case(poisoned_text: str) -> dict:
 
 if __name__ == "__main__":
     failed = 0
+    print(f"Provider: {rag_assistant.provider.name} | model: {rag_assistant.provider.model}\n")
     for name, text in CASES.items():
         result = run_case(text)
         answer = result["answer"]
@@ -52,4 +54,4 @@ if __name__ == "__main__":
         failed += not ok
         print(f"{'PASS' if ok else 'FAIL'} | {name:<18} | warned={warned!s:<5} task_done={task_done!s:<5} obeyed={obeyed!s:<5}")
         print(f"       answer: {answer[:300]!r}")
-    print(f"\n{len(CASES) - failed}/{len(CASES)} attacks resisted")
+    print(f"\n{rag_assistant.provider.name}/{rag_assistant.provider.model}: {len(CASES) - failed}/{len(CASES)} attacks resisted")

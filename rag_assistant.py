@@ -5,21 +5,21 @@ import time
 from pathlib import Path
 
 import chromadb
-from anthropic import Anthropic
 from dotenv import load_dotenv
 from pypdf import PdfReader
 
+from llm_provider import get_provider
 from observability import record_llm_call
 
 load_dotenv()
 
-MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5-5")  # e.g. claude-haiku-5-5 for a cheap public demo
 THRESHOLD = 1.4  # max distance to treat a chunk as relevant (tune it)
 DOCS_DIR = Path("docs")
 NOT_FOUND = "I could not find this in the documents."
 MAX_PDF_PAGES = 200
 
-llm = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+# LLM_PROVIDER=anthropic|groq, ANTHROPIC_MODEL / GROQ_MODEL pick the model
+provider = get_provider()
 
 # Persistent storage: the index survives between runs
 chroma = chromadb.PersistentClient(path="chroma_db")
@@ -175,9 +175,7 @@ def ask(question: str) -> dict:
     context = "\n\n".join(f"[{citation(c)}]\n{c['text']}" for c in chunks)
 
     started = time.perf_counter()
-    response = llm.messages.create(
-        model=MODEL,
-        max_tokens=500,
+    result = provider.generate(
         system=SYSTEM_PROMPT,
         messages=[
             {
@@ -185,11 +183,12 @@ def ask(question: str) -> dict:
                 "content": f"Context:\n{context}\n\nQuestion: {question}",
             }
         ],
+        max_tokens=500,
     )
-    record_llm_call(response, MODEL, started)
+    record_llm_call(result, started)
 
     return {
-        "answer": response.content[0].text,
+        "answer": result.text,
         "sources": [
             {
                 "source": c["source"],

@@ -17,7 +17,8 @@ import re
 import time
 
 from observability import record_llm_call
-from rag_assistant import MODEL, THRESHOLD, citation, llm, retrieve
+import rag_assistant
+from rag_assistant import THRESHOLD, citation, retrieve
 
 log = logging.getLogger("agent")
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -151,28 +152,24 @@ def execute_tool(name: str, args) -> str:
 
 
 def run_agent(question: str, max_steps: int = MAX_STEPS) -> dict:
+    provider = rag_assistant.provider  # looked up per call, so it can be swapped
     messages = [{"role": "user", "content": question}]
     steps = []
     for _ in range(max_steps):
         started = time.perf_counter()
-        response = llm.messages.create(
-            model=MODEL, max_tokens=800, system=AGENT_SYSTEM, tools=TOOLS, messages=messages
-        )
-        record_llm_call(response, MODEL, started)
-        if response.stop_reason != "tool_use":
-            text = "".join(b.text for b in response.content if b.type == "text")
-            return {"answer": text, "steps": steps, "stopped": "final_answer"}
+        result = provider.generate(system=AGENT_SYSTEM, messages=messages, tools=TOOLS, max_tokens=800)
+        record_llm_call(result, started)
+        if not result.tool_calls:
+            return {"answer": result.text, "steps": steps, "stopped": "final_answer"}
 
-        messages.append({"role": "assistant", "content": response.content})
-        results = []
-        for block in response.content:
-            if block.type != "tool_use":
-                continue
-            output = execute_tool(block.name, block.input)
-            log.info(json.dumps({"event": "tool_call", "tool": block.name, "input": block.input}, default=str))
-            steps.append({"tool": block.name, "input": block.input, "output": output[:300]})
-            results.append({"type": "tool_result", "tool_use_id": block.id, "content": output})
-        messages.append({"role": "user", "content": results})
+        messages.append(provider.assistant_message(result))
+        outputs = []
+        for call in result.tool_calls:
+            output = execute_tool(call.name, call.input)
+            log.info(json.dumps({"event": "tool_call", "tool": call.name, "input": call.input}, default=str))
+            steps.append({"tool": call.name, "input": call.input, "output": output[:300]})
+            outputs.append((call, output))
+        messages.extend(provider.tool_result_messages(outputs))
 
     return {
         "answer": "I could not finish within the step limit.",

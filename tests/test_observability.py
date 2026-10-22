@@ -1,37 +1,13 @@
 import json
 import logging
 import time
-from types import SimpleNamespace
-
 from fastapi.testclient import TestClient
 
 import agent
 import observability
+from llm_provider import LLMResult
 from api import app
-
-
-def reply_with_usage(response, input_tokens=1000, output_tokens=200):
-    response.usage = SimpleNamespace(input_tokens=input_tokens, output_tokens=output_tokens)
-    return response
-
-
-def text_reply(text, **usage):
-    block = SimpleNamespace(type="text", text=text)
-    return reply_with_usage(SimpleNamespace(stop_reason="end_turn", content=[block]), **usage)
-
-
-def tool_reply(name, args, **usage):
-    block = SimpleNamespace(type="tool_use", id="t1", name=name, input=args)
-    return reply_with_usage(SimpleNamespace(stop_reason="tool_use", content=[block]), **usage)
-
-
-class ScriptedLLM:
-    def __init__(self, replies):
-        self.replies = list(replies)
-        self.messages = self
-
-    def create(self, **kwargs):
-        return self.replies.pop(0)
+from fakes import FakeProvider, text_result, tool_result
 
 
 CHUNK = {"text": "Meal allowance is $75.", "source": "policy.pdf", "page": 3, "distance": 0.5}
@@ -53,7 +29,7 @@ def test_haiku_long_prompt_uses_higher_tier():
 def test_record_llm_call_accumulates_inside_a_request():
     with observability.request_stats() as stats:
         for _ in range(2):
-            observability.record_llm_call(text_reply("x"), "claude-sonnet-5-5", time.perf_counter())
+            observability.record_llm_call(text_result("x"), time.perf_counter())
         usage = observability.current_usage()
     assert stats.llm_calls == 2
     assert usage["input_tokens"] == 2000 and usage["output_tokens"] == 400
@@ -61,17 +37,17 @@ def test_record_llm_call_accumulates_inside_a_request():
 
 
 def test_missing_usage_does_not_break_and_outside_request_is_ignored():
-    observability.record_llm_call(SimpleNamespace(), "claude-sonnet-5-5", time.perf_counter())
+    observability.record_llm_call(LLMResult(text=""), time.perf_counter())
     assert observability.current_usage() is None
     with observability.request_stats():
-        observability.record_llm_call(SimpleNamespace(), "claude-sonnet-5-5", time.perf_counter())
+        observability.record_llm_call(LLMResult(text=""), time.perf_counter())
         assert observability.current_usage()["input_tokens"] == 0
 
 
 def test_llm_call_log_line_is_valid_json(caplog):
     with caplog.at_level(logging.INFO, logger="metrics"):
         with observability.request_stats():
-            observability.record_llm_call(text_reply("x"), "claude-sonnet-5-5", time.perf_counter())
+            observability.record_llm_call(text_result("x"), time.perf_counter())
     record = json.loads(caplog.records[-1].getMessage())
     assert record["event"] == "llm_call"
     assert {"request_id", "latency_ms", "input_tokens", "output_tokens", "cost_usd"} <= record.keys()
@@ -80,12 +56,11 @@ def test_llm_call_log_line_is_valid_json(caplog):
 def test_agent_usage_adds_up_over_steps(monkeypatch):
     monkeypatch.setattr(agent, "retrieve", lambda q, n_results=3: [CHUNK])
     monkeypatch.setattr(
-        agent,
-        "llm",
-        ScriptedLLM(
+        "rag_assistant.provider",
+        FakeProvider(
             [
-                tool_reply("search_documents", {"query": "meal"}, input_tokens=500, output_tokens=50),
-                text_reply("$75", input_tokens=900, output_tokens=30),
+                tool_result("search_documents", {"query": "meal"}, input_tokens=500, output_tokens=50),
+                text_result("$75", input_tokens=900, output_tokens=30),
             ]
         ),
     )
@@ -98,13 +73,14 @@ def test_agent_usage_adds_up_over_steps(monkeypatch):
 
 def test_ask_endpoint_returns_usage_and_headers(monkeypatch):
     monkeypatch.setattr("rag_assistant.retrieve", lambda q, n_results=3: [CHUNK])
-    monkeypatch.setattr("rag_assistant.llm", ScriptedLLM([text_reply("$75 [policy.pdf, p. 3]")]))
+    monkeypatch.setattr("rag_assistant.provider", FakeProvider([text_result("$75 [policy.pdf, p. 3]")]))
     with TestClient(app) as client:
         response = client.post("/ask", json={"question": "What is the meal allowance?"})
     body = response.json()
     assert body["usage"]["llm_calls"] == 1
     assert body["usage"]["input_tokens"] == 1000
     assert body["usage"]["cost_usd"] > 0
+    assert body["usage"]["provider"] == "fake" and body["usage"]["model"] == "claude-sonnet-5-5"
     assert len(response.headers["x-request-id"]) == 12
     assert int(response.headers["x-latency-ms"]) >= 0
 
@@ -120,7 +96,7 @@ def test_out_of_scope_question_costs_nothing(monkeypatch):
 
 def test_request_log_line_has_totals(monkeypatch, caplog):
     monkeypatch.setattr("rag_assistant.retrieve", lambda q, n_results=3: [CHUNK])
-    monkeypatch.setattr("rag_assistant.llm", ScriptedLLM([text_reply("$75")]))
+    monkeypatch.setattr("rag_assistant.provider", FakeProvider([text_result("$75")]))
     with caplog.at_level(logging.INFO, logger="metrics"):
         with TestClient(app) as client:
             client.post("/ask", json={"question": "What is the meal allowance?"})

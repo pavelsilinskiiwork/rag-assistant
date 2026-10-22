@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 import api
 import rag_assistant
 from api import app
+from fakes import FakeProvider, text_result
 
 
 # ---------- helpers ----------
@@ -58,27 +59,6 @@ class FakeCollection:
         self.deleted.append(where)
 
 
-def fake_llm(captured: dict | None = None, text: str = "ok"):
-    class Block:
-        pass
-
-    Block.text = text
-
-    class Response:
-        content = [Block()]
-
-    class FakeMessages:
-        def create(self, **kwargs):
-            if captured is not None:
-                captured.update(kwargs)
-            return Response()
-
-    class FakeLLM:
-        messages = FakeMessages()
-
-    return FakeLLM()
-
-
 # ---------- /health and /ask ----------
 
 
@@ -108,7 +88,7 @@ def test_unrelated_question_does_not_call_llm():
 
 def test_relevant_question_returns_sources(monkeypatch):
     # Replace the real Claude client with a fake one: no network, no cost
-    monkeypatch.setattr("rag_assistant.llm", fake_llm(text="20 days [handbook.txt]"))
+    monkeypatch.setattr("rag_assistant.provider", FakeProvider([text_result("20 days [handbook.txt]")]))
 
     with TestClient(app) as client:
         response = client.post(
@@ -194,12 +174,12 @@ def test_context_header_contains_file_and_page(monkeypatch):
             {"text": "Twelve weeks.", "source": "report.pdf", "page": 3, "distance": 0.5}
         ],
     )
-    captured = {}
-    monkeypatch.setattr("rag_assistant.llm", fake_llm(captured))
+    fake = FakeProvider([text_result("ok")])
+    monkeypatch.setattr("rag_assistant.provider", fake)
 
     result = rag_assistant.ask("How long is parental leave?")
 
-    assert "[report.pdf, p. 3]" in captured["messages"][0]["content"]
+    assert "[report.pdf, p. 3]" in fake.calls[0]["messages"][0]["content"]
     assert result["sources"][0]["page"] == 3
 
 

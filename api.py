@@ -1,11 +1,11 @@
 import os
 from contextlib import asynccontextmanager
 
-from anthropic import APIError
 from fastapi import FastAPI, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 
 from agent import run_agent
+from llm_provider import ProviderError
 from observability import current_usage, log_request, request_stats
 from rag_assistant import ask, index_documents, index_pdf
 
@@ -44,6 +44,8 @@ class Usage(BaseModel):
     output_tokens: int
     cost_usd: float  # estimate
     llm_latency_ms: int
+    provider: str | None = None
+    model: str | None = None
 
 
 class AskRequest(BaseModel):
@@ -85,6 +87,16 @@ class UploadResponse(BaseModel):
     chunks: int
 
 
+def provider_http_error(e: ProviderError) -> HTTPException:
+    """Rate limit -> 429 with a friendly message; any other provider failure -> 502."""
+    if e.rate_limited:
+        return HTTPException(
+            status_code=429,
+            detail="The demo has reached its request limit. Please try again later.",
+        )
+    return HTTPException(status_code=502, detail=f"LLM provider error: {e}")
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -96,11 +108,8 @@ def ask_endpoint(request: AskRequest):
         result = ask(request.question)
         result["usage"] = current_usage()
         return result
-    except APIError as e:
-        # The LLM provider failed: report a gateway error instead of a 500 crash
-        raise HTTPException(
-            status_code=502, detail=f"LLM provider error: {e.__class__.__name__}"
-        )
+    except ProviderError as e:
+        raise provider_http_error(e)
 
 
 @app.post("/agent", response_model=AgentResponse)
@@ -110,10 +119,8 @@ def agent_endpoint(request: AskRequest):
         result = run_agent(request.question)
         result["usage"] = current_usage()
         return result
-    except APIError as e:
-        raise HTTPException(
-            status_code=502, detail=f"LLM provider error: {e.__class__.__name__}"
-        )
+    except ProviderError as e:
+        raise provider_http_error(e)
 
 
 @app.post("/upload", response_model=UploadResponse)
