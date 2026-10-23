@@ -11,11 +11,11 @@ from agent import run_agent
 import rag_assistant
 from llm_provider import ProviderError, get_provider
 from observability import current_usage, log_request, request_stats
-from ratelimit import RateLimiter
+from ratelimit import RateLimiter, env_flag
 from rag_assistant import ask, index_documents, index_pdf
 
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
-DEMO_MODE = os.getenv("DEMO_MODE") == "1"  # public demo: uploads off, rate limits on
+DEMO_MODE = env_flag("DEMO_MODE")  # public demo: uploads off, rate limits on
 limiter = RateLimiter.from_env()
 _providers: dict = {}
 
@@ -38,7 +38,7 @@ def client_ip(request: Request) -> str:
     """Behind a reverse proxy (TRUST_PROXY=1) the last X-Forwarded-For entry is the
     address the proxy itself saw, which a client cannot forge."""
     forwarded = request.headers.get("x-forwarded-for")
-    if os.getenv("TRUST_PROXY") == "1" and forwarded:
+    if env_flag("TRUST_PROXY") and forwarded:
         return forwarded.split(",")[-1].strip()
     return request.client.host if request.client else "unknown"
 
@@ -74,6 +74,10 @@ def run_with_fallback(fn, question: str, provider_name: str | None) -> dict:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if DEMO_MODE:
+        print(f"DEMO_MODE is ON: {limiter.per_ip} requests/hour per visitor, {limiter.daily_total}/day total, uploads disabled")
+    else:
+        print("DEMO_MODE is OFF: no rate limits, uploads enabled")
     index_documents()  # (re)index docs/ on startup
     yield
 

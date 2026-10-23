@@ -5,7 +5,7 @@ import rag_assistant
 from api import app
 from fakes import FakeCollection, FakeProvider, make_pdf, text_result
 from llm_provider import ProviderError
-from ratelimit import RateLimiter
+from ratelimit import RateLimiter, env_flag
 
 OK = {"answer": "ok", "sources": [], "llm_called": False}
 
@@ -41,6 +41,24 @@ def test_limiter_daily_cap_resets_next_day():
     assert limiter.check("10.0.0.9")[0] == "daily"
     clock.now += 86400
     assert limiter.check("10.0.0.9") is None
+
+
+def test_env_flag_is_forgiving(monkeypatch):
+    for value in ["1", "1 ", " true", "TRUE", "yes", "on"]:
+        monkeypatch.setenv("FLAG", value)
+        assert env_flag("FLAG") is True, value
+    for value in ["0", "", "no", "false", "2"]:
+        monkeypatch.setenv("FLAG", value)
+        assert env_flag("FLAG") is False, value
+    monkeypatch.delenv("FLAG")
+    assert env_flag("FLAG") is False
+
+
+def test_limiter_from_env_accepts_windows_trailing_spaces(monkeypatch):
+    monkeypatch.setenv("DEMO_MODE", "1 ")  # what `set DEMO_MODE=1 ` produces in cmd
+    monkeypatch.setenv("RATE_LIMIT_PER_HOUR", "3 ")
+    limiter = RateLimiter.from_env()
+    assert limiter.enabled and limiter.per_ip == 3
 
 
 def test_disabled_limiter_never_blocks():

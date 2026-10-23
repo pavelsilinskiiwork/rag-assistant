@@ -13,6 +13,11 @@ HOUR = 3600
 DAY = 86400
 
 
+def env_flag(name: str) -> bool:
+    """True for 1/true/yes/on in any case. Windows `set X=1 ` keeps a trailing space, so strip."""
+    return os.getenv(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
 class RateLimiter:
     def __init__(self, per_ip_per_hour: int = 10, daily_total: int = 150,
                  enabled: bool = True, clock=time.time):
@@ -28,9 +33,9 @@ class RateLimiter:
     @classmethod
     def from_env(cls) -> "RateLimiter":
         return cls(
-            per_ip_per_hour=int(os.getenv("RATE_LIMIT_PER_HOUR", "10")),
-            daily_total=int(os.getenv("DAILY_LIMIT", "150")),
-            enabled=os.getenv("DEMO_MODE") == "1",
+            per_ip_per_hour=int(os.getenv("RATE_LIMIT_PER_HOUR", "10").strip()),
+            daily_total=int(os.getenv("DAILY_LIMIT", "150").strip()),
+            enabled=env_flag("DEMO_MODE"),
         )
 
     def check(self, ip: str) -> tuple[str, int] | None:
