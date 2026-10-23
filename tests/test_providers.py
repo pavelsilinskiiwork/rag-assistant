@@ -165,10 +165,10 @@ def test_get_provider_selection(monkeypatch):
 
 
 def test_api_maps_provider_errors(monkeypatch):
-    def limited(question):
+    def limited(question, **kw):
         raise ProviderError("quota", rate_limited=True)
 
-    def broken(question):
+    def broken(question, **kw):
         raise ProviderError("boom")
 
     with TestClient(app) as client:

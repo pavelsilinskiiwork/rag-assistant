@@ -151,8 +151,8 @@ def execute_tool(name: str, args) -> str:
 # ---------- agent loop ----------
 
 
-def run_agent(question: str, max_steps: int = MAX_STEPS) -> dict:
-    provider = rag_assistant.provider  # looked up per call, so it can be swapped
+def run_agent(question: str, max_steps: int = MAX_STEPS, provider=None) -> dict:
+    provider = provider or rag_assistant.provider  # looked up per call, so it can be swapped
     messages = [{"role": "user", "content": question}]
     steps = []
     for _ in range(max_steps):

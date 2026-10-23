@@ -65,9 +65,12 @@ class AnthropicProvider(Provider):
 
     def __init__(self, model: str | None = None, client=None):
         self.model = model or os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5-5")
+        self._needs_key = client is None
         self.client = client or Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
     def generate(self, system, messages, tools=None, max_tokens=500) -> LLMResult:
+        if self._needs_key and not os.getenv("ANTHROPIC_API_KEY"):
+            raise ProviderError("anthropic: ANTHROPIC_API_KEY is not set")
         kwargs = {"model": self.model, "max_tokens": max_tokens, "system": system, "messages": messages}
         if tools:
             kwargs["tools"] = tools  # our neutral tool format is Anthropic's own

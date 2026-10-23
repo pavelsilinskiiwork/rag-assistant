@@ -91,6 +91,10 @@ def index_documents() -> None:
             metadatas=[{"source": path.name} for _ in chunks],
         )
         print(f"Indexed {path.name}: {len(chunks)} chunks")
+    # PDFs placed in docs/ are indexed too (page-level metadata, same as /upload)
+    for path in sorted(DOCS_DIR.glob("*.pdf")):
+        info = index_pdf(path.read_bytes(), path.name)
+        print(f"Indexed {path.name}: {info['pages_indexed']} pages, {info['chunks']} chunks")
 
 
 def _normalize_pdf_text(text: str) -> str:
@@ -166,7 +170,7 @@ SYSTEM_PROMPT = (
 )
 
 
-def ask(question: str) -> dict:
+def ask(question: str, provider=None) -> dict:
     """Return the answer and the chunks used. Reused by the CLI and the API."""
     chunks = [c for c in retrieve(question) if c["distance"] <= THRESHOLD]
     if not chunks:
@@ -175,7 +179,9 @@ def ask(question: str) -> dict:
     context = "\n\n".join(f"[{citation(c)}]\n{c['text']}" for c in chunks)
 
     started = time.perf_counter()
-    result = provider.generate(
+    # the parameter shadows the module-level default provider, so read that one explicitly
+    llm_provider = provider or globals()["provider"]
+    result = llm_provider.generate(
         system=SYSTEM_PROMPT,
         messages=[
             {

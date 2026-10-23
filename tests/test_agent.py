@@ -120,7 +120,7 @@ def test_system_prompt_marks_documents_as_untrusted(monkeypatch):
 def test_agent_endpoint(monkeypatch):
     monkeypatch.setattr(
         "api.run_agent",
-        lambda q: {"answer": "42", "steps": [{"tool": "calculate", "input": {"expression": "6*7"}, "output": "42"}], "stopped": "final_answer"},
+        lambda q, **kw: {"answer": "42", "steps": [{"tool": "calculate", "input": {"expression": "6*7"}, "output": "42"}], "stopped": "final_answer"},
     )
     with TestClient(app) as client:
         response = client.post("/agent", json={"question": "What is 6 times 7?"})
