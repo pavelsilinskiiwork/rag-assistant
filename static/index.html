@@ -96,6 +96,10 @@
 </div>
 
 <script>
+// Same-origin by default (Render serves this page itself). On GitHub Pages the page is
+// static, so the API lives on the Render service.
+const RENDER_API_URL = "https://rag-assistant-thmd.onrender.com";
+const API = location.hostname.endsWith("github.io") ? RENDER_API_URL : "";
 const $ = (s) => document.querySelector(s);
 const SAMPLES = [
   { text: "How many vacation days do I get?", mode: "ask" },
@@ -206,9 +210,10 @@ async function ask(question) {
   addMessage("user").textContent = question;
   const box = addMessage("bot");
   box.textContent = "Thinking...";
+  const slow = setTimeout(() => { box.textContent = "Thinking... (the demo server may be waking up, up to ~1 min)"; }, 6000);
   $("#send").disabled = true;
   try {
-    const res = await fetch(mode === "agent" ? "/agent" : "/ask", {
+    const res = await fetch(API + (mode === "agent" ? "/agent" : "/ask"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ question, provider }),
@@ -227,6 +232,7 @@ async function ask(question) {
     box.className = "msg error";
     box.textContent = "Network error. Check your connection and try again.";
   } finally {
+    clearTimeout(slow);
     $("#send").disabled = false;
     box.scrollIntoView({ block: "end", behavior: "smooth" });
   }
@@ -234,7 +240,7 @@ async function ask(question) {
 
 async function loadConfig() {
   let cfg = { demo_mode: false, providers: [], default_provider: "" };
-  try { cfg = await (await fetch("/config")).json(); } catch (_) {}
+  try { cfg = await (await fetch(API + "/config")).json(); } catch (_) {}
   const select = $("#provider");
   select.append(new Option("Default (" + (cfg.default_provider || "server") + ")", ""));
   for (const name of cfg.providers) select.append(new Option(name, name));
@@ -267,7 +273,7 @@ $("#file").addEventListener("change", async (e) => {
   const form = new FormData();
   form.append("file", file);
   try {
-    const res = await fetch("/upload", { method: "POST", body: form });
+    const res = await fetch(API + "/upload", { method: "POST", body: form });
     const body = await res.json().catch(() => ({}));
     status.textContent = res.ok
       ? " Indexed " + body.filename + ": " + body.pages_indexed + " pages, " + body.chunks + " chunks."
