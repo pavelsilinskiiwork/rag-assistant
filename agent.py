@@ -18,7 +18,7 @@ import time
 
 from observability import record_llm_call
 import rag_assistant
-from rag_assistant import THRESHOLD, citation, retrieve
+from rag_assistant import citation, retrieve, select_relevant
 
 log = logging.getLogger("agent")
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -116,7 +116,7 @@ def calculate(expression: str) -> str:
 
 
 def search_documents(query: str) -> str:
-    chunks = [c for c in retrieve(query) if c["distance"] <= THRESHOLD]
+    chunks = select_relevant(retrieve(query))
     if not chunks:
         return "No relevant documents found."
     parts = []

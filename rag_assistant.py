@@ -13,7 +13,11 @@ from observability import record_llm_call
 
 load_dotenv()
 
-THRESHOLD = 1.4  # max distance to treat a chunk as relevant (tune it)
+THRESHOLD = 1.4  # absolute cap: chunks farther than this are never relevant
+# Relative cut-off: also drop chunks much farther than the best match for this question.
+# 0.35 means "keep chunks within 0.35 of the closest one". RELEVANCE_MARGIN=none disables it.
+_margin = os.getenv("RELEVANCE_MARGIN", "0.35").strip().lower()
+MARGIN = None if _margin in ("", "none", "off") else float(_margin)
 DOCS_DIR = Path("docs")
 NOT_FOUND = "I could not find this in the documents."
 MAX_PDF_PAGES = 200
@@ -154,6 +158,20 @@ def retrieve(question: str, n_results: int = 3) -> list[dict]:
     ]
 
 
+def select_relevant(chunks: list[dict], threshold: float = THRESHOLD, margin: float | None = MARGIN) -> list[dict]:
+    """Two-layer relevance filter: absolute distance cap, then a margin around the best chunk.
+
+    The absolute cap alone lets a loosely related chunk through whenever it happens to be
+    under the cap (e.g. a travel paragraph for a vacation question). The best chunk is the
+    reference point: anything much farther than it is dropped.
+    """
+    near = [c for c in chunks if c["distance"] <= threshold]
+    if not near or margin is None:
+        return near
+    best = min(c["distance"] for c in near)
+    return [c for c in near if c["distance"] <= best + margin]
+
+
 def citation(chunk: dict) -> str:
     """Label used both in the LLM context and in citations: 'file.pdf, p. 3'."""
     if chunk.get("page"):
@@ -172,7 +190,7 @@ SYSTEM_PROMPT = (
 
 def ask(question: str, provider=None) -> dict:
     """Return the answer and the chunks used. Reused by the CLI and the API."""
-    chunks = [c for c in retrieve(question) if c["distance"] <= THRESHOLD]
+    chunks = select_relevant(retrieve(question))
     if not chunks:
         return {"answer": NOT_FOUND, "sources": [], "llm_called": False}
 

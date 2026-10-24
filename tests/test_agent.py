@@ -147,3 +147,31 @@ def test_attack_phrases_are_flagged_and_benign_text_is_not():
         "Employees must note the new travel rules.",
     ]:
         assert not agent.SUSPICIOUS.search(benign), benign
+
+
+# ---------- relative relevance cut-off ----------
+
+
+def _chunk(d):
+    return {"text": "t", "source": "f.txt", "page": None, "distance": d}
+
+
+def test_margin_drops_chunk_far_behind_the_best():
+    from rag_assistant import select_relevant
+
+    kept = select_relevant([_chunk(0.57), _chunk(1.345)], threshold=1.4, margin=0.35)
+    assert [c["distance"] for c in kept] == [0.57]
+
+
+def test_margin_keeps_close_chunks_for_multi_document_questions():
+    from rag_assistant import select_relevant
+
+    kept = select_relevant([_chunk(0.60), _chunk(0.80)], threshold=1.4, margin=0.35)
+    assert len(kept) == 2
+
+
+def test_absolute_cap_still_applies_and_margin_can_be_disabled():
+    from rag_assistant import select_relevant
+
+    assert select_relevant([_chunk(1.9)], threshold=1.4, margin=0.35) == []
+    assert len(select_relevant([_chunk(0.5), _chunk(1.3)], threshold=1.4, margin=None)) == 2
