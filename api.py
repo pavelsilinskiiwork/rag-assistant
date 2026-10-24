@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
@@ -88,6 +89,21 @@ app = FastAPI(
     version="0.5.0",
     lifespan=lifespan,
 )
+
+
+def cors_origins() -> list[str]:
+    """CORS_ORIGINS="https://user.github.io,https://other.example" (empty = same-origin only)."""
+    return [o.strip().rstrip("/") for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()]
+
+
+if cors_origins():  # lets the static GitHub Pages UI call this API from another origin
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=cors_origins(),
+        allow_methods=["GET", "POST"],
+        allow_headers=["Content-Type"],
+        expose_headers=["Retry-After", "X-Request-Id"],
+    )
 
 
 @app.middleware("http")

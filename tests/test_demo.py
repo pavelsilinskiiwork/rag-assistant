@@ -186,3 +186,33 @@ def test_index_documents_loads_pdfs_from_docs_folder(monkeypatch, tmp_path):
     pdf = [u for u in fake.upserts if u["metadatas"][0]["source"] == "policy.pdf"]
     assert len(pdf) == 1 and [m["page"] for m in pdf[0]["metadatas"]] == [1, 2]
     assert any(u["metadatas"][0]["source"] == "notes.txt" for u in fake.upserts)
+
+
+# ---------- CORS for the GitHub Pages UI ----------
+
+
+def test_cors_origins_parsing(monkeypatch):
+    assert api.cors_origins() == []
+    monkeypatch.setenv("CORS_ORIGINS", "https://a.github.io/, https://b.example ,")
+    assert api.cors_origins() == ["https://a.github.io", "https://b.example"]
+
+
+def test_cors_preflight_allowed_origin():
+    from fastapi import FastAPI
+    from fastapi.middleware.cors import CORSMiddleware
+
+    mini = FastAPI()
+    mini.add_middleware(CORSMiddleware, allow_origins=["https://a.github.io"],
+                        allow_methods=["POST"], allow_headers=["Content-Type"])
+
+    @mini.post("/ask")
+    def ask_():
+        return {}
+
+    r = TestClient(mini).options("/ask", headers={
+        "Origin": "https://a.github.io", "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "content-type"})
+    assert r.headers["access-control-allow-origin"] == "https://a.github.io"
+    r = TestClient(mini).options("/ask", headers={
+        "Origin": "https://evil.example", "Access-Control-Request-Method": "POST"})
+    assert "access-control-allow-origin" not in r.headers
