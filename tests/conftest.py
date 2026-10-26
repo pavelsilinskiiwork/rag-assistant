@@ -11,7 +11,11 @@ import pytest
 import api
 from ratelimit import RateLimiter
 
-DEMO_ENV = ("DEMO_MODE", "RATE_LIMIT_PER_HOUR", "DAILY_LIMIT", "TRUST_PROXY", "FALLBACK_PROVIDER")
+DEMO_ENV = (
+    "DEMO_MODE", "RATE_LIMIT_PER_HOUR", "DAILY_LIMIT", "TRUST_PROXY", "FALLBACK_PROVIDER",
+    # AWS credentials set in the terminal for a manual Bedrock run must not change /config
+    "AWS_BEARER_TOKEN_BEDROCK", "AWS_ACCESS_KEY_ID", "AWS_PROFILE", "BEDROCK_MODEL_ID",
+)
 
 
 @pytest.fixture(autouse=True)

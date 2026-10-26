@@ -1,11 +1,11 @@
-"""One interface, several LLM providers (Anthropic, Groq).
+"""One interface, several LLM providers (Anthropic, Groq, AWS Bedrock).
 
 The rest of the app talks only to `Provider.generate()` and never sees a vendor
 SDK. Each provider owns its message format: Anthropic keeps tool results inside a
 user message, OpenAI-style APIs (Groq) use separate `tool` messages. The agent
 keeps the history as opaque messages and asks the provider to build them.
 
-Choose a provider with the LLM_PROVIDER environment variable ("anthropic" or "groq").
+Choose a provider with the LLM_PROVIDER environment variable ("anthropic", "groq" or "bedrock").
 """
 
 import json
@@ -187,10 +187,97 @@ class GroqProvider(Provider):
         return [{"role": "tool", "tool_call_id": call.id, "content": out} for call, out in outputs]
 
 
+# ---------- AWS Bedrock (Converse API) ----------
+#
+# The Converse API gives every Bedrock model the same request/response shape, including tool
+# use, so one adapter covers Nova, Claude, Llama, ... Switch models with BEDROCK_MODEL_ID.
+# Auth: standard AWS credentials (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY, a profile, an IAM
+# role) or a Bedrock API key in AWS_BEARER_TOKEN_BEDROCK. Region: AWS_REGION (default us-east-1).
+
+DEFAULT_BEDROCK_MODEL = "us.amazon.nova-lite-v1:0"
+
+
+class BedrockProvider(Provider):
+    name = "bedrock"
+
+    def __init__(self, model: str | None = None, client=None):
+        self.model = model or os.getenv("BEDROCK_MODEL_ID", DEFAULT_BEDROCK_MODEL)
+        self._client = client
+
+    @property
+    def client(self):
+        if self._client is None:  # created lazily: importing the app must not need AWS set up
+            import boto3
+
+            self._client = boto3.client(
+                "bedrock-runtime", region_name=os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION") or "us-east-1"
+            )
+        return self._client
+
+    @staticmethod
+    def _convert(messages: list[dict]) -> list[dict]:
+        """Plain-string content (what the RAG path sends) becomes Converse text blocks."""
+        return [
+            {"role": m["role"], "content": [{"text": m["content"]}] if isinstance(m["content"], str) else m["content"]}
+            for m in messages
+        ]
+
+    def generate(self, system, messages, tools=None, max_tokens=500) -> LLMResult:
+        kwargs = {
+            "modelId": self.model,
+            "system": [{"text": system}],
+            "messages": self._convert(messages),
+            "inferenceConfig": {"maxTokens": max_tokens},
+        }
+        if tools:
+            kwargs["toolConfig"] = {
+                "tools": [
+                    {"toolSpec": {"name": t["name"], "description": t["description"],
+                                  "inputSchema": {"json": t["input_schema"]}}}
+                    for t in tools
+                ]
+            }
+        try:
+            response = self.client.converse(**kwargs)
+        except Exception as e:  # botocore errors; imported lazily so tests can use fake clients
+            code = getattr(e, "response", {}).get("Error", {}).get("Code", "") if hasattr(e, "response") else ""
+            throttled = code in ("ThrottlingException", "TooManyRequestsException", "ServiceQuotaExceededException")
+            raise ProviderError(f"bedrock: {code or e.__class__.__name__}", rate_limited=throttled) from e
+
+        blocks = response["output"]["message"]["content"]
+        text = "".join(b["text"] for b in blocks if "text" in b)
+        calls = [
+            ToolCall(b["toolUse"]["toolUseId"], b["toolUse"]["name"], b["toolUse"].get("input") or {})
+            for b in blocks
+            if "toolUse" in b
+        ]
+        usage = response.get("usage") or {}
+        return LLMResult(
+            text=clean_text(text),
+            tool_calls=calls,
+            input_tokens=int(usage.get("inputTokens", 0) or 0),
+            output_tokens=int(usage.get("outputTokens", 0) or 0),
+            model=self.model,
+            provider=self.name,
+            raw=blocks,
+        )
+
+    def assistant_message(self, result: LLMResult) -> dict:
+        return {"role": "assistant", "content": result.raw}
+
+    def tool_result_messages(self, outputs) -> list[dict]:
+        blocks = [
+            {"toolResult": {"toolUseId": call.id, "content": [{"text": out}]}} for call, out in outputs
+        ]
+        return [{"role": "user", "content": blocks}]
+
+
 def get_provider(name: str | None = None) -> Provider:
     name = (name or os.getenv("LLM_PROVIDER", "anthropic")).lower()
     if name == "anthropic":
         return AnthropicProvider()
     if name == "groq":
         return GroqProvider()
-    raise ValueError(f"Unknown LLM_PROVIDER '{name}'. Use 'anthropic' or 'groq'.")
+    if name == "bedrock":
+        return BedrockProvider()
+    raise ValueError(f"Unknown LLM_PROVIDER '{name}'. Use 'anthropic', 'groq' or 'bedrock'.")

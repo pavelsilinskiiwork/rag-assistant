@@ -6,3 +6,4 @@ chromadb
 anthropic
 python-dotenv
 httpx
+boto3

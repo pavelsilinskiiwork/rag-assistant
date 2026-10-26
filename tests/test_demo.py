@@ -110,6 +110,15 @@ def test_config_lists_only_providers_with_keys(monkeypatch):
     assert "key" not in str(body).lower()
 
 
+def test_config_lists_bedrock_when_aws_credentials_are_set(monkeypatch):
+    monkeypatch.setenv("AWS_BEARER_TOKEN_BEDROCK", "b")
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    with TestClient(app) as client:
+        body = client.get("/config").json()
+    assert body["providers"] == ["bedrock"]
+
+
 def test_index_page_is_served():
     with TestClient(app) as client:
         response = client.get("/")

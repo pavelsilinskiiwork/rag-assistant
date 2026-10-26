@@ -177,3 +177,74 @@ def test_api_maps_provider_errors(monkeypatch):
         assert response.status_code == 429 and "limit" in response.json()["detail"]
         monkeypatch.setattr("api.ask", broken)
         assert client.post("/ask", json={"question": "How many days?"}).status_code == 502
+
+
+# ---------- AWS Bedrock (Converse API) ----------
+
+
+class FakeBedrock:
+    def __init__(self, response=None, error=None):
+        self.response, self.error, self.calls = response, error, []
+
+    def converse(self, **kwargs):
+        self.calls.append(kwargs)
+        if self.error:
+            raise self.error
+        return self.response
+
+
+def bedrock_reply(blocks, usage=None):
+    return {"output": {"message": {"role": "assistant", "content": blocks}},
+            "usage": usage or {"inputTokens": 0, "outputTokens": 0}}
+
+
+def test_bedrock_text_answer_and_request_shape():
+    fake = FakeBedrock(bedrock_reply([{"text": "hello\u202f[a.txt]"}], {"inputTokens": 20, "outputTokens": 5}))
+    result = llm_provider.BedrockProvider(client=fake).generate(
+        "SYS", [{"role": "user", "content": "hi"}], max_tokens=64)
+
+    sent = fake.calls[0]
+    assert sent["system"] == [{"text": "SYS"}]
+    assert sent["messages"] == [{"role": "user", "content": [{"text": "hi"}]}]
+    assert sent["inferenceConfig"] == {"maxTokens": 64} and "toolConfig" not in sent
+    assert result.text == "hello [a.txt]"
+    assert (result.input_tokens, result.output_tokens) == (20, 5)
+    assert result.provider == "bedrock" and result.model == "us.amazon.nova-lite-v1:0"
+
+
+def test_bedrock_tools_and_tool_loop_messages():
+    fake = FakeBedrock(bedrock_reply([
+        {"text": "checking"},
+        {"toolUse": {"toolUseId": "t1", "name": "calculate", "input": {"expression": "75*4"}}},
+    ]))
+    provider = llm_provider.BedrockProvider(client=fake)
+    result = provider.generate("S", [{"role": "user", "content": "q"}], tools=TOOLS)
+
+    spec = fake.calls[0]["toolConfig"]["tools"][0]["toolSpec"]
+    assert spec["name"] == "calculate" and spec["inputSchema"] == {"json": TOOLS[0]["input_schema"]}
+    assert result.tool_calls == [ToolCall("t1", "calculate", {"expression": "75*4"})]
+
+    assert provider.assistant_message(result) == {"role": "assistant", "content": result.raw}
+    assert provider.tool_result_messages([(result.tool_calls[0], "300")]) == [
+        {"role": "user", "content": [{"toolResult": {"toolUseId": "t1", "content": [{"text": "300"}]}}]}
+    ]
+
+
+def test_bedrock_throttling_is_rate_limited_and_other_errors_are_not():
+    class FakeClientError(Exception):  # same shape as botocore's ClientError, no AWS libraries needed
+        def __init__(self, code):
+            super().__init__(code)
+            self.response = {"Error": {"Code": code, "Message": "x"}}
+
+    with pytest.raises(ProviderError) as e:
+        llm_provider.BedrockProvider(client=FakeBedrock(error=FakeClientError("ThrottlingException"))).generate("S", [])
+    assert e.value.rate_limited
+    with pytest.raises(ProviderError) as e:
+        llm_provider.BedrockProvider(client=FakeBedrock(error=FakeClientError("AccessDeniedException"))).generate("S", [])
+    assert not e.value.rate_limited and "AccessDeniedException" in str(e.value)
+
+
+def test_bedrock_model_from_env_and_selection(monkeypatch):
+    monkeypatch.setenv("BEDROCK_MODEL_ID", "my.model-v1:0")
+    assert get_provider("bedrock").model == "my.model-v1:0"
+    assert get_provider("bedrock").name == "bedrock"

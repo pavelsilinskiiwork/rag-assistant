@@ -31,8 +31,12 @@ def resolve_provider(name: str | None):
 
 
 def available_providers() -> list[str]:
-    keys = {"groq": "GROQ_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}
-    return [name for name, env in keys.items() if os.getenv(env)]
+    keys = {
+        "groq": ("GROQ_API_KEY",),
+        "anthropic": ("ANTHROPIC_API_KEY",),
+        "bedrock": ("AWS_BEARER_TOKEN_BEDROCK", "AWS_ACCESS_KEY_ID", "AWS_PROFILE"),
+    }
+    return [name for name, envs in keys.items() if any(os.getenv(e) for e in envs)]
 
 
 def client_ip(request: Request) -> str:
@@ -132,7 +136,7 @@ class AskRequest(BaseModel):
     question: str = Field(
         ..., min_length=3, max_length=500, examples=["How many vacation days do I get?"]
     )
-    provider: Literal["anthropic", "groq"] | None = None  # default: LLM_PROVIDER
+    provider: Literal["anthropic", "groq", "bedrock"] | None = None  # default: LLM_PROVIDER
 
 
 class Source(BaseModel):

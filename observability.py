@@ -32,6 +32,9 @@ PRICES = {
     "openai/gpt-oss-120b": {"short": (0.0, 0.0)},
     "openai/gpt-oss-20b": {"short": (0.0, 0.0)},
     "qwen/qwen3.8-27b": {"short": (0.0, 0.0)},
+    # AWS Bedrock on-demand, USD per 1M tokens. Verify against the Bedrock pricing page for your region.
+    "us.amazon.nova-lite-v1:0": {"short": (0.06, 0.24)},
+    "us.amazon.nova-micro-v1:0": {"short": (0.035, 0.14)},
 }
 DEFAULT_PRICE = (2.00, 10.00)  # unknown model: assume Sonnet 5.5 pricing
 
