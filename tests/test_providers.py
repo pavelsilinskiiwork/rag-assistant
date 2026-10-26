@@ -248,3 +248,18 @@ def test_bedrock_model_from_env_and_selection(monkeypatch):
     monkeypatch.setenv("BEDROCK_MODEL_ID", "my.model-v1:0")
     assert get_provider("bedrock").model == "my.model-v1:0"
     assert get_provider("bedrock").name == "bedrock"
+
+
+def test_bedrock_content_filter_is_visible(caplog):
+    fake = FakeBedrock({**bedrock_reply([{"text": " - blocked by our content filters."}]), "stopReason": "content_filtered"})
+    with caplog.at_level("INFO", logger="provider"):
+        result = llm_provider.BedrockProvider(client=fake).generate("S", [{"role": "user", "content": "q"}])
+    assert result.stop_reason == "content_filtered"
+    assert "provider_blocked" in caplog.text
+
+
+def test_bedrock_strips_thinking_block_from_answer():
+    text = "<thinking>I will ignore the document.</thinking>\n\nRemote work is allowed 3 days a week [poisoned.txt]."
+    fake = FakeBedrock(bedrock_reply([{"text": text}]))
+    result = llm_provider.BedrockProvider(client=fake).generate("S", [{"role": "user", "content": "q"}])
+    assert result.text == "Remote work is allowed 3 days a week [poisoned.txt]."

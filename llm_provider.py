@@ -9,11 +9,15 @@ Choose a provider with the LLM_PROVIDER environment variable ("anthropic", "groq
 """
 
 import json
+import logging
 import os
+import re
 from dataclasses import dataclass, field
 
 import httpx
 from anthropic import Anthropic, APIError
+
+log = logging.getLogger("provider")
 
 
 class ProviderError(Exception):
@@ -39,6 +43,7 @@ class LLMResult:
     output_tokens: int = 0
     model: str = ""
     provider: str = ""
+    stop_reason: str = ""  # why generation ended, when the provider says (e.g. content_filtered)
     raw: object = None  # provider-specific payload used to rebuild the assistant message
 
 
@@ -246,12 +251,19 @@ class BedrockProvider(Provider):
 
         blocks = response["output"]["message"]["content"]
         text = "".join(b["text"] for b in blocks if "text" in b)
+        # Nova writes its reasoning as <thinking>...</thinking>; users should only see the answer
+        text = re.sub(r"<thinking>.*?</thinking>\s*", "", text, flags=re.DOTALL).strip()
         calls = [
             ToolCall(b["toolUse"]["toolUseId"], b["toolUse"]["name"], b["toolUse"].get("input") or {})
             for b in blocks
             if "toolUse" in b
         ]
         usage = response.get("usage") or {}
+        stop_reason = response.get("stopReason", "")
+        if stop_reason in ("content_filtered", "guardrail_intervened"):
+            # the platform's own filter replaced the answer; make that visible in the logs
+            log.info(json.dumps({"event": "provider_blocked", "provider": self.name, "model": self.model,
+                                 "stop_reason": stop_reason}))
         return LLMResult(
             text=clean_text(text),
             tool_calls=calls,
@@ -259,6 +271,7 @@ class BedrockProvider(Provider):
             output_tokens=int(usage.get("outputTokens", 0) or 0),
             model=self.model,
             provider=self.name,
+            stop_reason=stop_reason,
             raw=blocks,
         )
 
